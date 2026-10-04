@@ -189,9 +189,17 @@ export const MasterSubMeterDashboard: React.FC<{ language: Language; onBackToMan
         body: JSON.stringify({ kNumber: cleanK }),
       });
 
-      const resData = await response.json();
+      let resData: any = null;
+      try {
+        const text = await response.text();
+        if (text && text.trim().startsWith('{')) {
+          resData = JSON.parse(text);
+        }
+      } catch (e) {
+        console.warn('Non-JSON response in MasterSubMeterDashboard:', e);
+      }
 
-      if (resData.success && resData.data) {
+      if (resData && resData.success && resData.data) {
         const d = resData.data;
         const isPaid = Boolean(resData.isPaid || d.billAmount === 0);
 

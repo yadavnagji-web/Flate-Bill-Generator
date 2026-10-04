@@ -106,7 +106,18 @@ export const BillDeskAutoFetchModal: React.FC<BillDeskAutoFetchModalProps> = ({
         }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data: any = null;
+      if (text && text.trim().startsWith('{')) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = null;
+        }
+      }
+      if (!data) {
+        throw new Error('Invalid JSON');
+      }
       setResult(data);
     } catch {
       setResult({

@@ -249,7 +249,19 @@ export const DashboardKNumberLiveBox: React.FC<DashboardKNumberLiveBoxProps> = (
         }),
       });
 
-      const data: DiscomAutoFetchResult = await response.json();
+      const text = await response.text();
+      let data: DiscomAutoFetchResult | null = null;
+      if (text && text.trim().startsWith('{')) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = null;
+        }
+      }
+
+      if (!data) {
+        throw new Error('Invalid JSON from server');
+      }
 
       setLiveData(data);
       saveLiveBill(data);

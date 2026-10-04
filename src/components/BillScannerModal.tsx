@@ -295,9 +295,17 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
         }),
       });
 
-      const resJson = await response.json();
+      const text = await response.text();
+      let resJson: any = null;
+      if (text && text.trim().startsWith('{')) {
+        try {
+          resJson = JSON.parse(text);
+        } catch {
+          resJson = null;
+        }
+      }
 
-      if (resJson.success && resJson.data) {
+      if (resJson && resJson.success && resJson.data) {
         const d = resJson.data;
         const extractedUnits =
           typeof d.totalUnits === 'number' && d.totalUnits > 0
