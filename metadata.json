@@ -1,0 +1,10 @@
+{
+  "name": "Sub Meter Bill Generator",
+  "description": "Residential electricity sub-meter distribution and unit bill calculation manager for apartments and multi-flat buildings.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
