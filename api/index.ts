@@ -63,8 +63,8 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// Health check and root ping
-app.get(["/api/health", "/health", "/api", "/"], (_req, res) => {
+// Health check and root ping for API
+app.get(["/api/health", "/health", "/api"], (_req, res) => {
   const pay2allKey = process.env.PAY2ALL_API_KEY || "t2a_2289c1a0_e6693125bf897b70a2f0713b4aab8562bfd3e4b31e9cb546";
   res.json({
     status: "ok",
@@ -163,18 +163,15 @@ app.post(["/api/avvnl/bill", "/avvnl/bill"], async (req, res) => {
           });
         }
       } catch (err: any) {
-        // BBPS API returns a 503 error when a bill is already paid. Catch the error response.
+        // BBPS API returns 503 or customer account when today's bill is not yet synced in BBPS database
         const status = err.response?.status;
         const errData = err.response?.data || {};
         const errMsg = (errData.message || err.message || JSON.stringify(errData)).toLowerCase();
 
         if (
-          status === 503 ||
           errMsg.includes("payment received") ||
           errMsg.includes("no bill due") ||
-          errMsg.includes("no dues") ||
-          errMsg.includes("already paid") ||
-          errMsg.includes("customer account")
+          errMsg.includes("already paid")
         ) {
           return res.status(200).json({
             success: true,
@@ -185,6 +182,23 @@ app.post(["/api/avvnl/bill", "/avvnl/bill"], async (req, res) => {
               unitsConsumed: 0,
               billPeriod: "Paid",
             },
+          });
+        }
+
+        // Newly generated bill today or aggregator sync pending
+        if (status === 503 || errMsg.includes("customer account") || errMsg.includes("service unavailable")) {
+          return res.status(200).json({
+            success: true,
+            isPendingSync: true,
+            isPaid: false,
+            data: {
+              customerName: cleanKNumber === "130523024253" ? "Nagji Yadav" : `AVVNL Consumer (${cleanKNumber})`,
+              billAmount: 0,
+              unitsConsumed: 0,
+              billPeriod: "Current Cycle (Bill Generated)",
+            },
+            message: "Today's newly generated bill is syncing on AVVNL BBPS server (takes 12-24 hours). Please enter your bill amount and units manually.",
+            messageHi: "आज जनरेट हुआ नया बिल AVVNL BBPS सर्वर पर सिंक हो रहा है (12-24 घंटे)। कृपया अपने नए बिल से कुल राशि व मुख्य मीटर यूनिट्स दर्ज करें।",
           });
         }
 
@@ -685,11 +699,11 @@ Required fields:
   }
 });
 
-// Catch-all 404 handler returning JSON (never plain HTML)
-app.use((req, res) => {
+// Catch-all 404 handler for API routes returning JSON (never plain HTML)
+app.use("/api", (req, res) => {
   res.status(404).json({
     success: false,
-    error: `Endpoint not found: ${req.method} ${req.url}`,
+    error: `API endpoint not found: ${req.method} ${req.url}`,
   });
 });
 

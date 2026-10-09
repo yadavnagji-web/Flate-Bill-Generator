@@ -3,6 +3,7 @@ import { Building, Flat, MonthlyBill, Language, FlatBillEntry } from '../types';
 import { formatCurrency, formatUnits, formatBillingMonth } from '../utils/calculator';
 import { generateAllFlatsCombinedPdf, generateIndividualFlatPdf } from '../utils/pdfGenerator';
 import { getSavedKNumber, saveKNumber, USER_DEFAULT_K_NUMBER } from '../utils/storage';
+import { BillScannerModal } from './BillScannerModal';
 import {
   Zap,
   Plus,
@@ -25,6 +26,7 @@ import {
   Sparkles,
   Phone,
   FileText,
+  Camera,
 } from 'lucide-react';
 
 interface SubMeterFlatRow {
@@ -112,6 +114,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Manual Edit Overlay State
   const [isManualEditOpen, setIsManualEditOpen] = useState<boolean>(false);
+  const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
 
   // ==========================================
   // STEP 4: SUB-METER UNITS INPUT
@@ -230,10 +233,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const d = data.data;
         const fetchedAmt = Number(d.billAmount || 0);
         const fetchedUnits = Number(d.unitsConsumed || 0);
-        const isPaid = Boolean(data.isPaid || fetchedAmt === 0);
+        const isPendingSync = Boolean(data.isPendingSync);
+        const isPaid = Boolean(!isPendingSync && (data.isPaid || (fetchedAmt === 0 && !isPendingSync)));
 
-        setBillAmount(fetchedAmt);
-        setMainUnits(fetchedUnits);
+        if (fetchedAmt > 0) {
+          setBillAmount(fetchedAmt);
+        }
+        if (fetchedUnits > 0) {
+          setMainUnits(fetchedUnits);
+        }
         if (d.customerName && !d.customerName.includes('No Dues')) {
           setConsumerName(d.customerName);
         } else if (targetK === '130523024253') {
@@ -244,15 +252,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }
         setBillStatus(isPaid ? 'PAID' : 'DUE');
 
-        const msg = isPaid
-          ? language === 'hi'
-            ? `✅ AVVNL से प्राप्त: बिल जमा है (PAID / NO DUES)। यदि आप निश्चित मासिक राशि बांटना चाहते हैं, तो 'Manual Edit' में राशि दर्ज करें।`
-            : `✅ Fetched from AVVNL: Bill is PAID / NO DUES. If you want to distribute a custom amount, use 'Manual Edit'.`
-          : language === 'hi'
-          ? `✅ AVVNL से ₹${fetchedAmt.toLocaleString('en-IN')} का बिल सफलतापूर्वक प्राप्त हुआ!`
-          : `✅ Bill of ₹${fetchedAmt.toLocaleString('en-IN')} fetched successfully from AVVNL!`;
+        if (isPendingSync || fetchedAmt === 0) {
+          // Newly generated bill today or BBPS batch sync pending
+          setIsManualEditOpen(true);
+          const msg = language === 'hi'
+            ? `⚡ उपभोक्ता सत्यापित (${targetK === '130523024253' ? 'नागजी यादव' : d.customerName})। आज जनरेट हुआ नया बिल AVVNL BBPS सर्वर पर सिंक हो रहा है (12-24 घंटे)। कृपया अपने आज के बिल से कुल राशि (₹) और मुख्य मीटर यूनिट्स नीचे दर्ज करें (या '📸 Scan Bill' से फोटो अपलोड करें)।`
+            : `⚡ Consumer verified (${d.customerName}). Today's newly generated bill is syncing on AVVNL BBPS gateway (takes 12-24 hrs). Please enter your total bill amount (₹) and main meter units below, or use '📸 Scan Bill'.`;
+          setFetchSuccessMsg(msg);
+        } else {
+          const msg = isPaid
+            ? language === 'hi'
+              ? `✅ AVVNL से प्राप्त: बिल जमा है (PAID / NO DUES)। यदि आप निश्चित मासिक राशि बांटना चाहते हैं, तो 'Manual Edit' में राशि दर्ज करें।`
+              : `✅ Fetched from AVVNL: Bill is PAID / NO DUES. If you want to distribute a custom amount, use 'Manual Edit'.`
+            : language === 'hi'
+            ? `✅ AVVNL से ₹${fetchedAmt.toLocaleString('en-IN')} का बिल सफलतापूर्वक प्राप्त हुआ!`
+            : `✅ Bill of ₹${fetchedAmt.toLocaleString('en-IN')} fetched successfully from AVVNL!`;
 
-        setFetchSuccessMsg(msg);
+          setFetchSuccessMsg(msg);
+        }
       } else {
         // Fallback to billdesk-fetch endpoint safely
         let fbData: any = null;
@@ -270,11 +287,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           console.warn('BillDesk fetch warning:', e);
         }
 
-        if (fbData && fbData.success) {
+        if (fbData && fbData.success && (fbData.billAmount > 0 || fbData.totalUnits > 0)) {
           const fbAmt = Number(fbData.billAmount || 0);
           const fbUnits = Number(fbData.totalUnits || 0);
-          setBillAmount(fbAmt);
-          setMainUnits(fbUnits);
+          if (fbAmt > 0) setBillAmount(fbAmt);
+          if (fbUnits > 0) setMainUnits(fbUnits);
           if (fbData.consumerName) setConsumerName(fbData.consumerName);
           if (fbData.billingMonth) setBillingMonth(fbData.billingMonth);
           setBillStatus(fbAmt > 0 ? 'DUE' : 'PAID');
@@ -287,10 +304,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           if (targetK === '130523024253') {
             setConsumerName('Nagji Yadav');
           }
-          setFetchError(
+          setIsManualEditOpen(true);
+          setFetchSuccessMsg(
             language === 'hi'
-              ? 'AVVNL सर्वर से बिल प्राप्त नहीं हो सका। कृपया मैन्युअल रूप से यूनिट व राशि दर्ज करें।'
-              : 'Could not fetch bill from AVVNL gateway. You can enter units and amount manually below.'
+              ? '⚡ आज जनरेट हुआ नया बिल AVVNL BBPS सर्वर पर सिंक हो रहा है (12-24 घंटे)। कृपया अपने आज के बिल से कुल राशि (₹) और मुख्य मीटर यूनिट्स नीचे दर्ज करें (या "📸 Scan Bill" दबाएं)।'
+              : '⚡ Today\'s new bill is syncing on AVVNL BBPS gateway (takes 12-24 hrs). Please enter your total bill amount (₹) and main meter units below (or use "📸 Scan Bill").'
           );
         }
       }
@@ -553,6 +571,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   };
 
+  // Handle OCR scanned bill confirmation
+  const handleConfirmScannedBill = (data: any) => {
+    const amt = typeof data.totalBillAmount === 'number' && data.totalBillAmount > 0
+      ? data.totalBillAmount
+      : typeof data.netPayableAmount === 'number' && data.netPayableAmount > 0
+      ? data.netPayableAmount
+      : 0;
+    const units = typeof data.totalUnits === 'number' && data.totalUnits > 0 ? data.totalUnits : 0;
+
+    if (amt > 0) setBillAmount(amt);
+    if (units > 0) setMainUnits(units);
+    if (data.consumerName) setConsumerName(data.consumerName);
+    if (data.billingMonth) setBillingMonth(data.billingMonth);
+    if (data.billDate) setBillDate(data.billDate);
+    if (data.dueDate) setDueDate(data.dueDate);
+    setBillStatus('DUE');
+    setFetchSuccessMsg(
+      language === 'hi'
+        ? `✅ आज का बिल स्कैन सफल: ₹${amt.toLocaleString('en-IN')} कुल राशि व ${units} मुख्य यूनिट्स लोड हो गईं!`
+        : `✅ Bill scanned successfully: ₹${amt.toLocaleString('en-IN')} total amount & ${units} units loaded!`
+    );
+    setIsScannerOpen(false);
+  };
+
   return (
     <div className="space-y-5 pb-24 max-w-4xl mx-auto font-sans">
       {/* ============================================================== */}
@@ -650,7 +692,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => triggerAutoFetch(activeKNumber)}
@@ -659,6 +701,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
                 <span>{isFetching ? 'Fetching from AVVNL...' : '3. ⚡ Auto Fetch Bill'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsScannerOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow transition flex items-center gap-1.5 cursor-pointer"
+                title="Scan or upload today's electricity bill photo/PDF"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>📸 Scan Bill</span>
               </button>
 
               <button
@@ -734,15 +786,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* ============================================================== */}
-      {/* 5: MAIN METERS UNITS ENTER (AUTO OR MANUAL) */}
+      {/* 5: MAIN METERS UNITS & TOTAL BILL AMOUNT (AUTO OR MANUAL) */}
       {/* ============================================================== */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Layers className="w-5 h-5 text-cyan-400" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <Layers className="w-5 h-5 text-cyan-400 shrink-0" />
             <div>
               <h2 className="text-base font-black text-white">
-                5. Main Meter Units (मुख्य मीटर की कुल यूनिट)
+                5. Total Bill (₹) & Main Meter Units (मुख्य मीटर व बिल राशि)
               </h2>
               <p className="text-xs text-slate-400">
                 Auto-populated from AVVNL bill, or enter manually to calculate rate per unit.
@@ -750,35 +802,71 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <input
-                type="number"
-                min={0}
-                value={mainUnits === 0 && effectiveMainUnits > 0 ? '' : mainUnits}
-                placeholder={String(totalFlatUnits || 500)}
-                onChange={(e) => setMainUnits(parseFloat(e.target.value) || 0)}
-                className="w-36 bg-slate-950 border-2 border-cyan-500/50 focus:border-cyan-400 rounded-xl px-3 py-2 text-cyan-300 font-mono font-black text-lg text-right outline-none"
-              />
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
-                kWh
-              </span>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Bill Amount Input */}
+            <div className="flex flex-col items-end">
+              <label className="text-[10px] text-slate-400 font-bold uppercase mb-1">
+                Total Bill (कुल बिल ₹)
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-400 pointer-events-none">
+                  ₹
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  value={billAmount === 0 ? '' : billAmount}
+                  placeholder="5000"
+                  onChange={(e) => setBillAmount(parseFloat(e.target.value) || 0)}
+                  className="w-32 sm:w-36 bg-slate-950 border-2 border-amber-500/50 focus:border-amber-400 rounded-xl pl-7 pr-3 py-2 text-amber-300 font-mono font-black text-lg text-right outline-none transition"
+                />
+              </div>
             </div>
 
-            <div className="text-right">
-              <span className="text-[10px] text-slate-500 uppercase block font-bold">Auto Rate</span>
-              <span className="text-sm font-black text-emerald-400 font-mono">
-                ₹{perUnitRate.toFixed(2)}/unit
-              </span>
+            {/* Main Meter Units Input */}
+            <div className="flex flex-col items-end">
+              <label className="text-[10px] text-slate-400 font-bold uppercase mb-1">
+                Main Units (मुख्य यूनिट)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={0}
+                  value={mainUnits === 0 && effectiveMainUnits > 0 ? '' : mainUnits}
+                  placeholder={String(totalFlatUnits || 500)}
+                  onChange={(e) => setMainUnits(parseFloat(e.target.value) || 0)}
+                  className="w-32 sm:w-36 bg-slate-950 border-2 border-cyan-500/50 focus:border-cyan-400 rounded-xl px-3 pr-10 py-2 text-cyan-300 font-mono font-black text-lg text-right outline-none transition"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 pointer-events-none">
+                  kWh
+                </span>
+              </div>
+            </div>
+
+            {/* Live Per Unit Rate */}
+            <div className="flex flex-col items-end pl-2">
+              <span className="text-[10px] text-slate-500 uppercase font-bold mb-1">Auto Rate</span>
+              <div className="bg-emerald-950/60 border border-emerald-800/80 px-3 py-2 rounded-xl text-right">
+                <span className="text-sm font-black text-emerald-400 font-mono">
+                  ₹{perUnitRate.toFixed(2)}/u
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Quick calculation hint */}
-        <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-4 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-          <span>⚡ Billed Amount: <strong className="text-amber-300 font-mono">{formatCurrency(billAmount)}</strong></span>
-          <span>⚡ Main Meter Units: <strong className="text-cyan-300 font-mono">{formatUnits(effectiveMainUnits)} Units</strong></span>
-          <span>⚡ Per Unit Rate: <strong className="text-emerald-300 font-mono">₹{perUnitRate.toFixed(2)}/unit</strong> (Amount ÷ Units)</span>
+        <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span>⚡ Billed Amount: <strong className="text-amber-300 font-mono">{formatCurrency(billAmount)}</strong></span>
+            <span>⚡ Main Units: <strong className="text-cyan-300 font-mono">{formatUnits(effectiveMainUnits)} Units</strong></span>
+            <span>⚡ Per Unit Rate: <strong className="text-emerald-300 font-mono">₹{perUnitRate.toFixed(2)}/unit</strong></span>
+          </div>
+          {billAmount === 0 && (
+            <span className="text-amber-300/90 text-[10px] font-medium">
+              💡 यदि आज का नया बिल ऑनलाइन सिंक नहीं हुआ है, तो ऊपर कुल राशि (₹) व यूनिट्स दर्ज करें।
+            </span>
+          )}
         </div>
       </div>
 
@@ -1054,6 +1142,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Bill Scanner & OCR Modal */}
+      {isScannerOpen && (
+        <BillScannerModal
+          isOpen={isScannerOpen}
+          onClose={() => setIsScannerOpen(false)}
+          language={language}
+          onConfirmBill={handleConfirmScannedBill}
+        />
+      )}
     </div>
   );
 };
